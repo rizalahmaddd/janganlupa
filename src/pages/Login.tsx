@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { useLocation } from "../lib/router";
 import { Icon } from "../components/Icon";
 
@@ -10,6 +10,10 @@ function mailApp(email: string): { name: string; url: string } | null {
   if (/^(yahoo|ymail)\./.test(domain)) return { name: "Yahoo Mail", url: "https://mail.yahoo.com/" };
   return null;
 }
+
+const RESEND_COOLDOWN = 5 * 60;
+
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 export function Login({ onLoggedIn }: { onLoggedIn: (redirect: string) => void }) {
   const { params } = useLocation();
@@ -47,10 +51,17 @@ export function Login({ onLoggedIn }: { onLoggedIn: (redirect: string) => void }
       } catch {}
       setEmail(r.email);
       setSent(true);
-      setCooldown(60);
+      setCooldown(RESEND_COOLDOWN);
       setDev(r.devLink ? r : null);
       setTimeout(() => codeRef.current?.focus(), 50);
     } catch (err) {
+      // A link already went out recently (e.g. before a reload), so go straight to the "check your email" step.
+      if (err instanceof ApiError && err.code === "login_cooldown") {
+        setSent(true);
+        setCooldown(Number(err.data?.retryAfter) || RESEND_COOLDOWN);
+        setTimeout(() => codeRef.current?.focus(), 50);
+        return;
+      }
       setError((err as Error).message);
     } finally {
       setBusy(false);
@@ -90,6 +101,10 @@ export function Login({ onLoggedIn }: { onLoggedIn: (redirect: string) => void }
           <div className="stack">
             <h1>Cek emailmu</h1>
             <p>Link masuk dikirim ke <b>{email}</b>. Buka di perangkat ini, atau ketik kode 6 digit dari email.</p>
+            <div className="notice tip">
+              <Icon name="inbox" size={18} />
+              <span><b>Belum ada di kotak masuk?</b> Cek folder Spam, Promosi, atau Semua Email. Kalau ketemu di Spam, tandai "Bukan spam" supaya email berikutnya langsung masuk inbox.</span>
+            </div>
             {mailApp(email) && (
               <div className="mail-apps">
                 <a className="btn" href={mailApp(email)!.url} target="_blank" rel="noopener noreferrer"><Icon name="mail" size={16} />Buka {mailApp(email)!.name}</a>
@@ -116,10 +131,10 @@ export function Login({ onLoggedIn }: { onLoggedIn: (redirect: string) => void }
                 Mode lokal: email tidak dikirim. <a href={dev.devLink}>Buka link masuk</a> atau pakai kode <b>{dev.devCode}</b>.
               </div>
             )}
-            <p className="muted small">Tidak ada di kotak masuk? Cek folder Spam/Promosi. Link berlaku 15 menit.</p>
+            <p className="muted small">Link dan kode berlaku 15 menit.</p>
             <div className="row-between">
-              <button className="link-btn" onClick={() => (setSent(false), setCode(""), setError(null))}>Ganti email</button>
-              <button className="link-btn" disabled={cooldown > 0 || busy} onClick={() => request()}>{cooldown > 0 ? `Kirim ulang (${cooldown})` : "Kirim ulang"}</button>
+              <button className="link-btn" onClick={() => (setSent(false), setCode(""), setError(null), setCooldown(0))}>Ganti email</button>
+              <button className="link-btn" disabled={cooldown > 0 || busy} onClick={() => request()}>{cooldown > 0 ? `Kirim ulang (${clock(cooldown)})` : "Kirim ulang"}</button>
             </div>
           </div>
         )}

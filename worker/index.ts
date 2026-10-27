@@ -69,7 +69,7 @@ app.route("/", transfer);
 
 app.notFound((c) => c.json({ error: "Endpoint tidak ditemukan", code: "not_found" }, 404));
 app.onError((err, c) => {
-  if (err instanceof HttpError) return c.json({ error: err.message, code: err.code }, err.status as 400);
+  if (err instanceof HttpError) return c.json({ ...err.data, error: err.message, code: err.code }, err.status as 400);
   console.error(err);
   return c.json({ error: "Terjadi kesalahan di server. Coba lagi.", code: "server_error" }, 500);
 });

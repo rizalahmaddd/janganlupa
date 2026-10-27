@@ -11,6 +11,9 @@ export const SESSION_COOKIE = "jl_session";
 const TOKEN_TTL = 15 * 60 * 1000;
 const SESSION_TTL = 30 * 24 * 60 * 60 * 1000;
 const MAX_CODE_ATTEMPTS = 5;
+const RESEND_COOLDOWN = 5 * 60 * 1000;
+const DAILY_UNUSED_LIMIT = 5;
+const DAY = 24 * 60 * 60 * 1000;
 
 export function safeRedirect(raw: unknown): string {
   if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\") || raw.length > 2000) return "/";
@@ -64,6 +67,40 @@ async function signIn(c: Ctx, email: string) {
   await createSession(c, user!.id);
 }
 
+// signIn marks every pending token as used, so a successful login resets this count.
+async function checkDailyLimit(env: Env, email: string, t: number) {
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM login_tokens WHERE email = ? AND used_at IS NULL AND created_at > ?",
+  )
+    .bind(email, t - DAY)
+    .first<{ n: number; oldest: number | null }>();
+  if (!row || row.n < DAILY_UNUSED_LIMIT) return;
+  const retryAfter = Math.max(60, Math.ceil(((row.oldest ?? t) + DAY - t) / 1000));
+  const hours = Math.floor(retryAfter / 3600);
+  const wait = hours ? `${hours} jam` : `${Math.ceil(retryAfter / 60)} menit`;
+  throw new HttpError(
+    429,
+    `Sudah ${DAILY_UNUSED_LIMIT} kali minta link hari ini tanpa dipakai. Cek folder Spam, atau coba lagi dalam ${wait}.`,
+    "login_daily_limit",
+    { retryAfter },
+  );
+}
+
+async function claimResend(env: Env, email: string, t: number): Promise<string> {
+  const key = `login:cooldown:${email}`;
+  const claimed = await env.DB.prepare(
+    `INSERT INTO rate_limits (key, count, reset_at) VALUES (?1, 1, ?2)
+     ON CONFLICT(key) DO UPDATE SET count = 1, reset_at = ?2 WHERE reset_at < ?3
+     RETURNING key`,
+  )
+    .bind(key, t + RESEND_COOLDOWN, t)
+    .first();
+  if (claimed) return key;
+  const row = await env.DB.prepare("SELECT reset_at FROM rate_limits WHERE key = ?").bind(key).first<{ reset_at: number }>();
+  const retryAfter = Math.max(1, Math.ceil(((row?.reset_at ?? t + RESEND_COOLDOWN) - t) / 1000));
+  throw new HttpError(429, "Link masuk sudah dikirim. Cek email atau tunggu sebentar untuk minta lagi.", "login_cooldown", { retryAfter });
+}
+
 function loginMail(env: Env, link: string, code: string) {
   const text = `Masuk ke ${env.APP_NAME}\n\nBuka link ini (berlaku 15 menit, sekali pakai):\n${link}\n\nAtau ketik kode ini di perangkat yang sedang kamu pakai: ${code}\n\nKalau kamu tidak meminta email ini, abaikan saja.`;
   const html = layout(
@@ -84,12 +121,13 @@ export const auth = new Hono<AppEnv>()
     const email = normalizeEmail(body.email);
     if (!email) throw new HttpError(400, "Alamat email tidak valid", "invalid_email");
     await rateLimit(c.env.DB, `login:ip:${clientIp(c)}`, 20, 15 * 60 * 1000);
-    await rateLimit(c.env.DB, `login:email:${email}`, 5, 15 * 60 * 1000);
+    const t = now();
+    await checkDailyLimit(c.env, email, t);
+    const cooldownKey = await claimResend(c.env, email, t);
 
     const token = randomToken();
     const code = randomCode();
     const id = uid();
-    const t = now();
     await c.env.DB.prepare(
       "INSERT INTO login_tokens (id, email, token_hash, code_hash, redirect, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
@@ -101,6 +139,11 @@ export const auth = new Hono<AppEnv>()
       await sendMail(c.env, { to: email, ...loginMail(c.env, link, code) });
     } catch (e) {
       console.error("login mail failed", e);
+      // Nothing reached the inbox, so this attempt shouldn't count toward the cooldown or the daily limit.
+      await c.env.DB.batch([
+        c.env.DB.prepare("DELETE FROM rate_limits WHERE key = ?").bind(cooldownKey),
+        c.env.DB.prepare("DELETE FROM login_tokens WHERE id = ?").bind(id),
+      ]);
       throw new HttpError(502, "Email gagal dikirim. Coba lagi sebentar lagi.", "mail_failed");
     }
     const dev = c.env.EMAIL_PROVIDER === "console" && isLocal(c.env) ? { devLink: link, devCode: code } : {};

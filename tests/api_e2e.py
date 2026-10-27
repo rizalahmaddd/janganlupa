@@ -192,8 +192,11 @@ s, r = a("GET", f"/links/{gh}")
 check("owner sees share count", r["link"]["shareCount"] == 0, r["link"]["shareCount"])
 
 c = client()
-for i in range(6):
-    s, r = c("POST", "/auth/request", {"email": "spam@example.com"})
-check("rate limit login", s == 429, r)
+s, r = c("POST", "/auth/request", {"email": "spam@example.com"})
+check("first login request sent", s == 200, r)
+s, r = c("POST", "/auth/request", {"email": "spam@example.com"})
+check("resend blocked by cooldown", s == 429 and r.get("code") == "login_cooldown" and 290 <= r.get("retryAfter", 0) <= 300, r)
+s, r = c("POST", "/auth/request", {"email": "other@example.com"})
+check("cooldown is per email", s == 200, r)
 
 print(f"\n{ok} checks passed")
