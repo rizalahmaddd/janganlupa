@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "janganlupa",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // Uncomment to serve the app on your own domain.
+  // "routes": [{ "pattern": "janganlupa.example.com", "custom_domain": true }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "janganlupa",
+      "database_id": "<your-d1-database-id>",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Optional: background jobs also run on regular traffic and via GET /api/jobs,
+  // so a cron trigger is only needed if you have a free slot on your account.
+  // "triggers": { "crons": ["*/10 * * * *"] },
+  "vars": {
+    "APP_NAME": "JanganLupa",
+    "APP_URL": "https://janganlupa.example.com",
+    "EMAIL_FROM": "JanganLupa <noreply@example.com>",
+    "EMAIL_PROVIDER": "resend"
+  },
+  "observability": { "enabled": true }
+}

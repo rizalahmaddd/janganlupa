@@ -1,0 +1,10 @@
+node_modules
+dist
+.wrangler
+.dev.vars
+*.log
+.playwright-mcp
+wrangler.jsonc
+plan.md
+__pycache__
+.DS_Store

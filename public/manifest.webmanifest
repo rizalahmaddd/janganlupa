@@ -1,0 +1,26 @@
+{
+  "name": "JanganLupa",
+  "short_name": "JanganLupa",
+  "description": "Simpan link, ingat konteksnya.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f4ef",
+  "theme_color": "#0f6b5c",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "share_target": {
+    "action": "/add",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  },
+  "shortcuts": [
+    { "name": "Simpan link", "url": "/?add=1" },
+    { "name": "Terlupakan", "url": "/?view=lupa" }
+  ]
+}
